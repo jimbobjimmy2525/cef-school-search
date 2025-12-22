@@ -3,8 +3,9 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 from math import radians, cos, sin, asin, sqrt
+from datetime import datetime
 
-# Haversine formula to calculate distance in miles
+# Haversine formula
 def haversine(lon1, lat1, lon2, lat2):
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
     dlon, dlat = lon2 - lon1, lat2 - lat1
@@ -13,23 +14,20 @@ def haversine(lon1, lat1, lon2, lat2):
 
 st.set_page_config(page_title="CEF School Search - Tennessee", layout="wide")
 
-# Updated Title
+# Initialize Session State
+if 'active_school' not in st.session_state:
+    st.session_state.active_school = None
+
 st.title("CEF School Search - Tennessee")
 
 @st.cache_data
 def load_data():
     try:
-        # Load data with latin1 encoding for Windows CSV compatibility
         churches = pd.read_csv('TN_Churches.csv', encoding='latin1')
         schools = pd.read_csv('TN_PublicSchools.csv', encoding='latin1')
-        
-        # Clean school column names
         schools.columns = schools.columns.str.strip()
-        
-        # Ensure coordinates are numeric
         schools['Latitude'] = pd.to_numeric(schools['Latitude'], errors='coerce')
         schools['Longitude'] = pd.to_numeric(schools['Longitude'], errors='coerce')
-        
         return churches.dropna(subset=['LATITUDE', 'LONGITUDE']), schools.dropna(subset=['Latitude', 'Longitude'])
     except Exception as e:
         st.error(f"Error loading files: {e}")
@@ -38,129 +36,115 @@ def load_data():
 churches_df, schools_df = load_data()
 
 if churches_df is not None:
-    # --- SIDEBAR SEARCH & FILTERS ---
+    # --- SIDEBAR ---
     st.sidebar.header("Search Parameters")
-    
-    # 1. DYNAMIC CITY SEARCH
-    city_search_term = st.sidebar.text_input("1a. Search for a City:", "")
-    
+    city_search = st.sidebar.text_input("1a. Search City:", "")
     all_cities = sorted(churches_df['CITY'].unique().astype(str).tolist())
-    
-    # Filter city list based on user typing
-    filtered_city_options = [city for city in all_cities if city_search_term.lower() in city.lower()]
-    city_final_list = ["All Tennessee Cities"] + filtered_city_options
-    
-    if len(city_final_list) == 1 and city_search_term:
-        st.sidebar.warning("No cities match that search.")
-        city_final_list = ["All Tennessee Cities"] + all_cities
+    filt_cities = [c for c in all_cities if city_search.lower() in c.lower()]
+    city_options = ["All Tennessee Cities"] + filt_cities
+    selected_city = st.sidebar.selectbox("1b. Select City:", city_options)
 
-    selected_city = st.sidebar.selectbox("1b. Select City:", city_final_list)
-
-    # Filter church data based on city selection
     if selected_city == "All Tennessee Cities":
-        city_filtered_churches = churches_df
+        city_filt_churches = churches_df
     else:
-        city_filtered_churches = churches_df[churches_df['CITY'] == selected_city]
+        city_filt_churches = churches_df[churches_df['CITY'] == selected_city]
 
-    # 2. Church Name Search
-    church_search_term = st.sidebar.text_input(f"2. Search Church in {selected_city}:", "")
+    church_search = st.sidebar.text_input(f"2. Search Church Name:", "")
+    avail_churches = sorted(city_filt_churches['CONAME'].unique().tolist())
+    filt_church_list = [c for c in avail_churches if church_search.lower() in c.lower()]
     
-    available_churches = sorted(city_filtered_churches['CONAME'].unique().tolist())
-    filtered_church_list = [c for c in available_churches if church_search_term.lower() in c.lower()]
-    
-    if not filtered_church_list:
-        filtered_church_list = available_churches
+    if not filt_church_list:
+        filt_church_list = avail_churches
 
-    # 3. Dynamic Select Church Dropdown
-    default_church = "All in One Kingdom Church"
-    idx = 0
-    if not church_search_term and default_church in filtered_church_list:
-        idx = filtered_church_list.index(default_church)
-    
-    church_label = f"3. Select Church in: {selected_city}"
-    selected_church_name = st.sidebar.selectbox(church_label, filtered_church_list, index=idx)
-    
-    # Subtitle with selected church name
-    st.subheader(f"Nearby Schools for: {selected_church_name}")
+    selected_church_name = st.sidebar.selectbox(f"3. Church in {selected_city}:", filt_church_list)
+    radius_miles = st.sidebar.slider("4. Radius (Miles):", 0.5, 20.0, 3.0, 0.5)
 
-    # 4. Radius Slider
-    radius_miles = st.sidebar.slider("4. Set Search Radius (Miles):", 0.5, 20.0, 3.0, 0.5)
-
-    # --- DATA CALCULATION ---
-    church_data = city_filtered_churches[city_filtered_churches['CONAME'] == selected_church_name].iloc[0]
+    # --- CALCULATIONS ---
+    church_data = city_filt_churches[city_filt_churches['CONAME'] == selected_church_name].iloc[0]
     c_lat, c_lon = float(church_data['LATITUDE']), float(church_data['LONGITUDE'])
 
     schools_df['Distance'] = schools_df.apply(
         lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1
     )
-    
     nearby_schools = schools_df[schools_df['Distance'] <= radius_miles].sort_values('Distance')
 
-    # --- LAYOUT: MAP & LIST ---
-    col_map, col_details = st.columns([2, 1])
+    # --- FILENAME GENERATION ---
+    # Create the YY_MMD- prefix
+    date_prefix = datetime.now().strftime("%y_%m%d")
+    # Sanitize church name (remove spaces/special chars for a clean filename)
+    clean_church_name = "".join([c if c.isalnum() else "_" for c in selected_church_name])
+    dynamic_filename = f"{date_prefix}-{clean_church_name}-{radius_miles}mi.csv"
 
-    with col_map:
-        m = folium.Map(location=[c_lat, c_lon], zoom_start=13)
+    # --- TABS ---
+    tab1, tab2 = st.tabs(["🗺️ Map View", "📋 School List & Details"])
+
+    with tab1:
+        m = folium.Map(location=[c_lat, c_lon], zoom_start=13, scrollWheelZoom=False)
+        folium.Circle([c_lat, c_lon], radius=radius_miles * 1609.34, color='red', fill=True, fill_opacity=0.05).add_to(m)
         
-        # Radius Circle
-        folium.Circle(
-            [c_lat, c_lon], 
-            radius=radius_miles * 1609.34, 
-            color='red', 
-            fill=True, 
-            fill_opacity=0.05
-        ).add_to(m)
-
-        # Smart Map Resizing (Fit Bounds)
+        # Smart Resize
         lat_change = radius_miles / 69.0
         lon_change = radius_miles / (69.0 * cos(radians(c_lat)))
         m.fit_bounds([[c_lat - lat_change, c_lon - lon_change], [c_lat + lat_change, c_lon + lon_change]])
 
         # Markers
-        folium.Marker(
-            [c_lat, c_lon], 
-            tooltip="CHURCH: " + selected_church_name, 
-            icon=folium.Icon(color='red', icon='cross', prefix='fa')
-        ).add_to(m)
+        folium.Marker([c_lat, c_lon], tooltip=selected_church_name, icon=folium.Icon(color='red', icon='cross', prefix='fa')).add_to(m)
 
         for _, row in nearby_schools.iterrows():
+            is_active = (row['School'] == st.session_state.active_school)
+            icon_color = "green" if is_active else "blue"
+            z_index = 1000 if is_active else 1
+            
             folium.Marker(
                 [row['Latitude'], row['Longitude']],
                 tooltip=row['School'],
-                icon=folium.Icon(color='blue', icon='graduation-cap', prefix='fa')
+                icon=folium.Icon(color=icon_color, icon='graduation-cap', prefix='fa'),
+                z_index_offset=z_index
             ).add_to(m)
 
-        map_output = st_folium(m, width=800, height=600, key="map")
-
-    with col_details:
-        st.write(f"### Found {len(nearby_schools)} Schools")
+        map_output = st_folium(m, use_container_width=True, height=500, key="map")
         
-        st.dataframe(
-            nearby_schools[['School', 'Distance', 'City']],
-            column_config={"Distance": st.column_config.NumberColumn("Miles", format="%.2f")},
-            hide_index=True,
-            use_container_width=True
-        )
-        
-        st.divider()
-        # School Details Metrics Card
         if map_output and map_output.get("last_object_clicked_tooltip"):
-            school_name = map_output["last_object_clicked_tooltip"]
-            if school_name in nearby_schools['School'].values:
-                info = nearby_schools[nearby_schools['School'] == school_name].iloc[0]
-                
-                with st.container(border=True):
-                    st.markdown(f"### {info['School']}")
-                    st.write(f"📍 **Address:** {info['Address']}")
-                    st.write(f"🏙️ **City/State:** {info['City']}, {info['State']}")
-                    st.write(f"📮 **Zip Code:** {info['Zipcode']}")
-                    st.write(f"📞 **Phone:** {info['Phone1']}")
-                    st.metric("Proximity", f"{info['Distance']:.2f} miles")
-            else:
-                st.info("Click a blue marker to see details.")
-        else:
-            st.info("Click a blue marker to see details.")
+            clicked = map_output["last_object_clicked_tooltip"]
+            if clicked in nearby_schools['School'].values and clicked != st.session_state.active_school:
+                st.session_state.active_school = clicked
+                st.rerun()
 
-    # Sidebar Export
+    with tab2:
+        st.write(f"### Results ({len(nearby_schools)})")
+        
+        school_options = ["None Selected"] + nearby_schools['School'].tolist()
+        current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
+            
+        selected_from_list = st.selectbox("Search/Select a school to highlight on map:", school_options, index=current_idx)
+        
+        if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
+            st.session_state.active_school = selected_from_list
+            st.rerun()
+
+        def highlight_row(row):
+            return ['background-color: #d1f2eb' if st.session_state.active_school == row.School else '' for _ in row]
+
+        styled_df = nearby_schools[['School', 'Distance', 'City']].style.apply(highlight_row, axis=1)
+        st.dataframe(styled_df, hide_index=True, use_container_width=True)
+        
+        if st.session_state.active_school and st.session_state.active_school != "None Selected":
+            info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
+            with st.container(border=True):
+                st.markdown(f"### ✅ {info['School']}")
+                st.write(f"📍 **Address:** {info['Address']}")
+                st.write(f"🏙️ **City/Zip:** {info['City']}, TN {info['Zipcode']}")
+                st.write(f"📞 **Phone:** {info['Phone1']}")
+                st.metric("Proximity", f"{info['Distance']:.2f} miles")
+                if st.button("Clear Selection"):
+                    st.session_state.active_school = None
+                    st.rerun()
+
+    # Sidebar Export with DYNAMIC FILENAME
     csv = nearby_schools.to_csv(index=False).encode('utf-8')
-    st.sidebar.download_button("Export Results to CSV", csv, "cef_results.csv", "text/csv")
+    st.sidebar.download_button(
+        label="📥 Export Results (CSV)",
+        data=csv,
+        file_name=dynamic_filename,
+        mime="text/csv"
+    )
