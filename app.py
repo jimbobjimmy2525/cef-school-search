@@ -11,15 +11,15 @@ def haversine(lon1, lat1, lon2, lat2):
     a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
     return 2 * asin(sqrt(a)) * 3956
 
-st.set_page_config(page_title="CEF School Search", layout="wide")
+st.set_page_config(page_title="CEF School Search - Tennessee", layout="wide")
 
-# Title
-st.title("CEF School Search")
+# Updated Title
+st.title("CEF School Search - Tennessee")
 
 @st.cache_data
 def load_data():
     try:
-        # Load data with latin1 encoding
+        # Load data with latin1 encoding for Windows CSV compatibility
         churches = pd.read_csv('TN_Churches.csv', encoding='latin1')
         schools = pd.read_csv('TN_PublicSchools.csv', encoding='latin1')
         
@@ -42,14 +42,12 @@ if churches_df is not None:
     st.sidebar.header("Search Parameters")
     
     # 1. DYNAMIC CITY SEARCH
-    city_search_term = st.sidebar.text_input("1a. Type to Search for a City:", "")
+    city_search_term = st.sidebar.text_input("1a. Search for a City:", "")
     
     all_cities = sorted(churches_df['CITY'].unique().astype(str).tolist())
     
     # Filter city list based on user typing
     filtered_city_options = [city for city in all_cities if city_search_term.lower() in city.lower()]
-    
-    # Add "All Tennessee Cities" to the top of the list
     city_final_list = ["All Tennessee Cities"] + filtered_city_options
     
     if len(city_final_list) == 1 and city_search_term:
@@ -64,16 +62,13 @@ if churches_df is not None:
     else:
         city_filtered_churches = churches_df[churches_df['CITY'] == selected_city]
 
-    # 2. Church Name Search (within the selected city)
-    church_search_term = st.sidebar.text_input(f"2. Search Church Name in {selected_city}:", "")
+    # 2. Church Name Search
+    church_search_term = st.sidebar.text_input(f"2. Search Church in {selected_city}:", "")
     
-    # Filter church list based on search term
     available_churches = sorted(city_filtered_churches['CONAME'].unique().tolist())
     filtered_church_list = [c for c in available_churches if church_search_term.lower() in c.lower()]
     
     if not filtered_church_list:
-        if church_search_term:
-            st.sidebar.warning("No matches for that name in this selection.")
         filtered_church_list = available_churches
 
     # 3. Dynamic Select Church Dropdown
@@ -116,7 +111,7 @@ if churches_df is not None:
             fill_opacity=0.05
         ).add_to(m)
 
-        # Smart Map Resizing
+        # Smart Map Resizing (Fit Bounds)
         lat_change = radius_miles / 69.0
         lon_change = radius_miles / (69.0 * cos(radians(c_lat)))
         m.fit_bounds([[c_lat - lat_change, c_lon - lon_change], [c_lat + lat_change, c_lon + lon_change]])
@@ -148,7 +143,7 @@ if churches_df is not None:
         )
         
         st.divider()
-        # Marker Interaction / Metrics Cards
+        # School Details Metrics Card
         if map_output and map_output.get("last_object_clicked_tooltip"):
             school_name = map_output["last_object_clicked_tooltip"]
             if school_name in nearby_schools['School'].values:
