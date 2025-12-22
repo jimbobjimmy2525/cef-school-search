@@ -14,6 +14,7 @@ def haversine(lon1, lat1, lon2, lat2):
 
 st.set_page_config(page_title="CEF School Search - Tennessee", layout="wide")
 
+# Initialize Session State
 if 'active_school' not in st.session_state:
     st.session_state.active_school = None
 
@@ -63,16 +64,19 @@ if churches_df is not None:
     schools_df['Distance'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
     nearby_schools = schools_df[schools_df['Distance'] <= radius_miles].sort_values('Distance')
 
+    # Safety: If the active school is no longer in the nearby list (due to radius/city change), clear it
+    if st.session_state.active_school and st.session_state.active_school not in nearby_schools['School'].values:
+        st.session_state.active_school = None
+
     date_prefix = datetime.now().strftime("%y_%m%d")
     clean_church_name = "".join([c if c.isalnum() else "_" for c in selected_church_name])
     dynamic_filename = f"{date_prefix}-{clean_church_name}-{radius_miles}mi.csv"
 
-    # --- LAYOUT: BACK TO COLUMNS ---
-    # On desktop, these are side-by-side. On mobile, they automatically stack!
+    # --- LAYOUT ---
     col_left, col_right = st.columns([3, 2])
 
     with col_left:
-        st.subheader(f"Map View for {selected_church_name}")
+        st.subheader(f"Map View")
         m = folium.Map(location=[c_lat, c_lon], zoom_start=13, scrollWheelZoom=False)
         folium.Circle([c_lat, c_lon], radius=radius_miles * 1609.34, color='red', fill=True, fill_opacity=0.05).add_to(m)
         
@@ -104,7 +108,12 @@ if churches_df is not None:
         st.subheader(f"Results ({len(nearby_schools)})")
         
         school_options = ["None Selected"] + nearby_schools['School'].tolist()
-        current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
+        # Find index safely
+        try:
+            current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
+        except ValueError:
+            current_idx = 0
+
         selected_from_list = st.selectbox("Search/Select to highlight on map:", school_options, index=current_idx)
         
         if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
@@ -115,21 +124,26 @@ if churches_df is not None:
         def highlight_row(row):
             return ['background-color: #d1f2eb' if st.session_state.active_school == row.School else '' for _ in row]
 
-        styled_df = nearby_schools[['School', 'Distance', 'City']].style.apply(highlight_row, axis=1)
-        st.dataframe(styled_df, hide_index=True, use_container_width=True, height=300)
+        if not nearby_schools.empty:
+            styled_df = nearby_schools[['School', 'Distance', 'City']].style.apply(highlight_row, axis=1)
+            st.dataframe(styled_df, hide_index=True, use_container_width=True, height=300)
+        else:
+            st.write("No schools found in this radius.")
         
-        # Details Card
-        if st.session_state.active_school and st.session_state.active_school != "None Selected":
-            info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
-            with st.container(border=True):
-                st.markdown(f"#### ✅ {info['School']}")
-                st.write(f"📍 **Address:** {info['Address']}")
-                st.write(f"🏙️ **City/Zip:** {info['City']}, TN {info['Zipcode']}")
-                st.write(f"📞 **Phone:** {info['Phone1']}")
-                st.metric("Proximity", f"{info['Distance']:.2f} miles")
-                if st.button("Clear Selection"):
-                    st.session_state.active_school = None
-                    st.rerun()
+        # Details Card with Safety Check
+        if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
+            info_rows = nearby_schools[nearby_schools['School'] == st.session_state.active_school]
+            if not info_rows.empty:
+                info = info_rows.iloc[0]
+                with st.container(border=True):
+                    st.markdown(f"#### ✅ {info['School']}")
+                    st.write(f"📍 **Address:** {info['Address']}")
+                    st.write(f"🏙️ **City/Zip:** {info['City']}, TN {info['Zipcode']}")
+                    st.write(f"📞 **Phone:** {info['Phone1']}")
+                    st.metric("Proximity", f"{info['Distance']:.2f} miles")
+                    if st.button("Clear Selection"):
+                        st.session_state.active_school = None
+                        st.rerun()
         else:
             st.info("Click a marker or select from the list to see contact info.")
 
