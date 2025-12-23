@@ -34,8 +34,8 @@ if 'active_school' not in st.session_state:
     st.session_state.active_school = None
 if 'driving_data' not in st.session_state:
     st.session_state.driving_data = {}
-if 'last_search_key' not in st.session_state:
-    st.session_state.last_search_key = ""
+if 'last_search_id' not in st.session_state:
+    st.session_state.last_search_id = ""
 
 st.title("CEF School Search - Tennessee")
 
@@ -77,6 +77,16 @@ if churches_df is not None:
 
     radius_miles = st.sidebar.slider("4. Radius (Miles):", 0.5, 20.0, 3.0, 0.5)
 
+    # --- RESET LOGIC ---
+    # Create a unique ID for the current search (Church + Radius)
+    current_search_id = f"{selected_church_name}_{radius_miles}"
+    
+    # If the ID changed, clear the old driving data and active school
+    if st.session_state.last_search_id != current_search_id:
+        st.session_state.driving_data = {}
+        st.session_state.active_school = None
+        st.session_state.last_search_id = current_search_id
+
     # --- MAIN LAYOUT ---
     col_left, col_right = st.columns([3, 2])
     has_selection = selected_church_name != "--- Select a Church ---"
@@ -96,8 +106,6 @@ if churches_df is not None:
             
             schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
             nearby_schools = schools_df[schools_df['Air_Dist'] <= radius_miles].copy()
-            
-            # CRITICAL FIX: Ensure Driving_Miles column exists even if empty to prevent KeyError
             nearby_schools['Driving_Miles'] = nearby_schools['School'].map(st.session_state.driving_data)
 
             for _, row in nearby_schools.iterrows():
@@ -130,9 +138,10 @@ if churches_df is not None:
             
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
+                # Button only appears if we have schools and NO driving data yet
                 if not nearby_schools.empty and not st.session_state.driving_data:
                     if st.button("🚗 Calculate Driving Miles", use_container_width=True):
-                        with st.spinner('Calculating...'):
+                        with st.spinner('Calculating road routes...'):
                             results = {row['School']: get_driving_distance(c_lat, c_lon, row['Latitude'], row['Longitude']) for _, row in nearby_schools.iterrows()}
                             st.session_state.driving_data = results
                         st.rerun()
@@ -162,10 +171,7 @@ if churches_df is not None:
                 return [''] * len(row)
 
             if not nearby_schools.empty:
-                # Column check logic
                 dist_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
-                
-                # Sort by distance
                 nearby_schools = nearby_schools.sort_values(dist_col)
                 
                 st.dataframe(
@@ -178,11 +184,8 @@ if churches_df is not None:
                     with st.container(border=True):
                         st.write(f"**{info['School']}**")
                         st.write(f"📍 {info['Address']}, {info['City']}")
-                        
-                        # Corrected Maps URL for directions
                         gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={c_lat},{c_lon}&destination={info['Latitude']},{info['Longitude']}&travelmode=driving"
                         st.link_button("🌐 Open Directions in Google Maps", gmaps_url, use_container_width=True)
-                        
                         if st.button("Clear Selection", use_container_width=True):
                             st.session_state.active_school = None
                             st.rerun()
