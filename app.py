@@ -55,16 +55,13 @@ if churches_df is not None:
     # --- SIDEBAR ---
     st.sidebar.header("Search Parameters")
     
-    # 1. City Search
     city_search = st.sidebar.text_input("1a. Search City:", "")
     all_cities = sorted(churches_df['CITY'].unique().astype(str).tolist())
     filt_cities = [c for c in all_cities if city_search.lower() in c.lower()]
     
-    # NEW: Default to an empty selection for the city/church
     city_options = ["--- Select a City ---"] + filt_cities
     selected_city = st.sidebar.selectbox("1b. Select City:", city_options)
 
-    # 2. Church Search
     if selected_city != "--- Select a City ---":
         city_filt_churches = churches_df[churches_df['CITY'] == selected_city]
         church_search = st.sidebar.text_input("2. Search Church Name:", "")
@@ -79,15 +76,13 @@ if churches_df is not None:
 
     # --- MAIN LAYOUT ---
     col_left, col_right = st.columns([3, 2])
-
-    # Check if a church is actually selected
     has_selection = selected_church_name != "--- Select a Church ---"
 
     with col_left:
         st.subheader("Map View")
         
         if has_selection:
-            # NORMAL VIEW (CHURCH SELECTED)
+            # --- CHURCH VIEW ---
             church_data = churches_df[churches_df['CONAME'] == selected_church_name].iloc[0]
             c_lat, c_lon = float(church_data['LATITUDE']), float(church_data['LONGITUDE'])
             
@@ -97,7 +92,6 @@ if churches_df is not None:
             folium.Circle([c_lat, c_lon], radius=radius_miles * 1609.34, color='red', fill=True, fill_opacity=0.05).add_to(m)
             folium.Marker([c_lat, c_lon], tooltip=selected_church_name, icon=folium.Icon(color='red', icon='cross', prefix='fa')).add_to(m)
             
-            # Filter Schools
             schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
             nearby_schools = schools_df[schools_df['Air_Dist'] <= radius_miles].copy()
             
@@ -109,26 +103,75 @@ if churches_df is not None:
                     icon=folium.Icon(color="darkblue" if is_active else "blue", icon='graduation-cap', prefix='fa')
                 ).add_to(m)
         else:
-            # STATEWIDE VIEW (DEFAULT)
-            st.info("👋 Welcome! Please select a City and Church in the sidebar to begin your search.")
-            # Center of Tennessee
-            m = folium.Map(location=[35.5175, -86.5804], zoom_start=7, scrollWheelZoom=False)
+            # --- STATEWIDE VIEW ---
+            st.info("👋 Welcome! Use the sidebar to select a city and church to view nearby schools.")
+            # Map centered on Tennessee
+            m = folium.Map(location=[35.8601, -86.6602], zoom_start=7, scrollWheelZoom=False)
+            
+            # Tennessee Bounding Box (Approximate coordinates)
+            tn_bounds = [[34.98, -90.31], [36.68, -81.64]]
+            folium.Rectangle(
+                bounds=tn_bounds,
+                color="#0056b3",
+                weight=2,
+                fill=True,
+                fill_color="#0056b3",
+                fill_opacity=0.1,
+                tooltip="Tennessee Data Coverage Area"
+            ).add_to(m)
+            m.fit_bounds(tn_bounds)
 
-        map_output = st_folium(m, use_container_width=True, height=550)
+        st_folium(m, use_container_width=True, height=550, key="main_map")
 
     with col_right:
         if has_selection:
-            # ... (All your existing Results logic goes here: Calculate, Export, and Dataframe)
-            st.markdown(f"#### 🏫 Schools within {radius_miles} miles")
-            # [Add the rest of your Result logic here as per previous versions]
+            st.markdown(f"#### 🏫 Schools within {radius_miles} miles of {selected_church_name} ({len(nearby_schools)})")
+            
+            # Action Buttons Column
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if not nearby_schools.empty and not st.session_state.driving_data:
+                    if st.button("🚗 Calculate Driving Miles", use_container_width=True):
+                        with st.spinner('Requesting road routes...'):
+                            results = {}
+                            for _, row in nearby_schools.iterrows():
+                                dist = get_driving_distance(c_lat, c_lon, row['Latitude'], row['Longitude'])
+                                results[row['School']] = dist
+                            st.session_state.driving_data = results
+                        st.rerun()
+                elif st.session_state.driving_data:
+                    st.button("✅ Distances Calculated", disabled=True, use_container_width=True)
+
+            with btn_col2:
+                if not nearby_schools.empty:
+                    clean_name = "".join([c if c.isalnum() else "_" for c in selected_church_name])
+                    dynamic_filename = f"{datetime.now().strftime('%y_%m%d')}-{clean_name}-{radius_miles}mi.csv"
+                    csv = nearby_schools.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Export School List", data=csv, file_name=dynamic_filename, use_container_width=True)
+
+            # Data Display & Interaction
+            school_options = ["None Selected"] + nearby_schools['School'].tolist()
+            current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
+            selected_from_list = st.selectbox("Highlight a school:", school_options, index=current_idx)
+            
+            if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
+                st.session_state.active_school = selected_from_list
+                st.rerun()
+
+            def highlight_row(row):
+                return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row) if st.session_state.active_school == row.School else [''] * len(row)
+
+            dist_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
+            st.dataframe(
+                nearby_schools[['School', dist_col, 'City']].style.apply(highlight_row, axis=1),
+                hide_index=True, use_container_width=True, height=300
+            )
         else:
-            # Instructions Overlay
             st.markdown("""
             ### 🏁 Getting Started
-            1. Use the **Sidebar** on the left.
-            2. Search for a **City** in Tennessee.
-            3. Select a **Church** from that city.
-            4. Adjust your **Radius** to see nearby schools.
+            1. **Select a City**: Start typing a city name in step 1a.
+            2. **Choose a Church**: Pick the partner church from the dropdown.
+            3. **Adjust Radius**: Move the slider to change the search area.
             
-            *The map will automatically zoom to your selection and find schools within range.*
+            *The map will automatically zoom to your selection and identify public schools in the vicinity.*
             """)
