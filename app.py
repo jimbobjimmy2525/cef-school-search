@@ -6,22 +6,20 @@ from streamlit_folium import st_folium
 from math import radians, cos, sin, asin, sqrt
 from datetime import datetime
 
-# 1. Haversine for initial radius filtering
+# Haversine for initial radius filtering
 def haversine(lon1, lat1, lon2, lat2):
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
     dlon, dlat = lon2 - lon1, lat2 - lat1
     a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
     return 2 * asin(sqrt(a)) * 3956
 
-# 2. OSRM Road Distance Calculation
+# OSRM Road Distance Calculation
 def get_driving_distance(c_lat, c_lon, s_lat, s_lon):
     try:
-        # OSRM expects coordinates in Lon,Lat format
         url = f"http://router.project-osrm.org/route/v1/driving/{c_lon},{c_lat};{s_lon},{s_lat}?overview=false"
         response = requests.get(url, timeout=5)
         data = response.json()
         if data['code'] == 'Ok':
-            # Distance is in meters, convert to miles (1 meter = 0.000621371 miles)
             return data['routes'][0]['distance'] * 0.000621371
         return None
     except:
@@ -29,8 +27,13 @@ def get_driving_distance(c_lat, c_lon, s_lat, s_lon):
 
 st.set_page_config(page_title="CEF School Search - Tennessee", layout="wide")
 
+# Initialize Session States
 if 'active_school' not in st.session_state:
     st.session_state.active_school = None
+if 'driving_data' not in st.session_state:
+    st.session_state.driving_data = {}
+if 'last_search_key' not in st.session_state:
+    st.session_state.last_search_key = ""
 
 st.title("CEF School Search - Tennessee")
 
@@ -72,21 +75,25 @@ if churches_df is not None:
     church_data = city_filt_churches[city_filt_churches['CONAME'] == selected_church_name].iloc[0]
     c_lat, c_lon = float(church_data['LATITUDE']), float(church_data['LONGITUDE'])
 
-    # Step A: Straight-line filter (Fast)
+    # Create a unique key for the current search (Church + Radius)
+    current_search_key = f"{selected_church_name}_{radius_miles}"
+    
+    # If the search parameters changed, clear the saved driving data
+    if st.session_state.last_search_key != current_search_key:
+        st.session_state.driving_data = {}
+        st.session_state.last_search_key = current_search_key
+        st.session_state.active_school = None
+
+    # Step A: Straight-line filter (Always Fast)
     schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
     nearby_schools = schools_df[schools_df['Air_Dist'] <= radius_miles].copy()
 
-    # Step B: Driving distance (External Request - only for filtered results)
-    if not nearby_schools.empty:
-        with st.spinner('Calculating actual road distances...'):
-            nearby_schools['Driving_Miles'] = nearby_schools.apply(
-                lambda r: get_driving_distance(c_lat, c_lon, r['Latitude'], r['Longitude']), axis=1
-            )
+    # Apply saved driving data if it exists
+    if st.session_state.driving_data:
+        nearby_schools['Driving_Miles'] = nearby_schools['School'].map(st.session_state.driving_data)
         nearby_schools = nearby_schools.sort_values('Driving_Miles')
-
-    # Safety: Reset active school if missing
-    if st.session_state.active_school and st.session_state.active_school not in nearby_schools['School'].values:
-        st.session_state.active_school = None
+    else:
+        nearby_schools = nearby_schools.sort_values('Air_Dist')
 
     date_prefix = datetime.now().strftime("%y_%m%d")
     clean_church_name = "".join([c if c.isalnum() else "_" for c in selected_church_name])
@@ -127,13 +134,24 @@ if churches_df is not None:
     with col_right:
         st.subheader(f"Results ({len(nearby_schools)})")
         
+        # --- DRIVING DISTANCE BUTTON ---
+        if not nearby_schools.empty and not st.session_state.driving_data:
+            if st.button("🚗 Calculate Driving Miles (OSRM)", use_container_width=True):
+                with st.spinner('Requesting road routes...'):
+                    results = {}
+                    for _, row in nearby_schools.iterrows():
+                        dist = get_driving_distance(c_lat, c_lon, row['Latitude'], row['Longitude'])
+                        results[row['School']] = dist
+                    st.session_state.driving_data = results
+                st.rerun()
+
         school_options = ["None Selected"] + nearby_schools['School'].tolist()
         try:
             current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
         except ValueError:
             current_idx = 0
 
-        selected_from_list = st.selectbox("Search/Select to highlight on map:", school_options, index=current_idx)
+        selected_from_list = st.selectbox("Search/Select to highlight:", school_options, index=current_idx)
         
         if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
             st.session_state.active_school = selected_from_list
@@ -143,15 +161,18 @@ if churches_df is not None:
             return ['background-color: #d1f2eb' if st.session_state.active_school == row.School else '' for _ in row]
 
         if not nearby_schools.empty:
-            # Table now shows Driving Distance
-            display_cols = ['School', 'Driving_Miles', 'City']
+            # Show Driving Miles if calculated, otherwise show Air Miles
+            dist_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
+            dist_label = "Driving Mi" if st.session_state.driving_data else "Air Mi"
+            
+            display_cols = ['School', dist_col, 'City']
             styled_df = nearby_schools[display_cols].style.apply(highlight_row, axis=1)
             st.dataframe(
                 styled_df, 
                 hide_index=True, 
                 use_container_width=True, 
                 height=300,
-                column_config={"Driving_Miles": st.column_config.NumberColumn("Driving Mi", format="%.2f")}
+                column_config={dist_col: st.column_config.NumberColumn(dist_label, format="%.2f")}
             )
         else:
             st.write("No schools found.")
@@ -162,7 +183,11 @@ if churches_df is not None:
                 st.markdown(f"#### ✅ {info['School']}")
                 st.write(f"📍 **Address:** {info['Address']}, {info['City']} TN")
                 st.write(f"📞 **Phone:** {info['Phone1']}")
-                st.metric("Road Distance", f"{info['Driving_Miles']:.2f} miles")
+                
+                final_dist = info['Driving_Miles'] if st.session_state.driving_data else info['Air_Dist']
+                label = "Road Distance" if st.session_state.driving_data else "Straight-line Distance"
+                st.metric(label, f"{final_dist:.2f} miles")
+                
                 if st.button("Clear Selection"):
                     st.session_state.active_school = None
                     st.rerun()
