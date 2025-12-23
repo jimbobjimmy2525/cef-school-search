@@ -98,7 +98,14 @@ if churches_df is not None:
             st.markdown(f"<h4 style='color: #0056b3; margin-top: -15px;'>📍 {selected_church_name}</h4>", unsafe_allow_html=True)
             
             m = folium.Map(location=[c_lat, c_lon], zoom_start=13)
-            folium.Circle([c_lat, c_lon], radius=radius_miles * 1609.34, color='red', fill=True, fill_opacity=0.05).add_to(m)
+            
+            # --- RADIUS & ZOOM LOGIC ---
+            radius_meters = radius_miles * 1609.34
+            circle = folium.Circle([c_lat, c_lon], radius=radius_meters, color='red', fill=True, fill_opacity=0.05).add_to(m)
+            
+            # RESTORED: Auto-zoom to fit the radius
+            m.fit_bounds(circle.get_bounds())
+            
             folium.Marker([c_lat, c_lon], tooltip=selected_church_name, icon=folium.Icon(color='red', icon='cross', prefix='fa')).add_to(m)
             
             schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
@@ -106,7 +113,6 @@ if churches_df is not None:
             nearby_schools['Driving_Miles'] = nearby_schools['School'].map(st.session_state.driving_data)
 
             for _, row in nearby_schools.iterrows():
-                # Reimplemented: Icon Color Highlighting Logic
                 is_active = (row['School'] == st.session_state.active_school)
                 folium.Marker(
                     [row['Latitude'], row['Longitude']],
@@ -115,7 +121,6 @@ if churches_df is not None:
                     z_index_offset=1000 if is_active else 0
                 ).add_to(m)
             
-            # Reimplemented: Capture Map Clicks to set Active School
             map_output = st_folium(m, use_container_width=True, height=550, key="active_map")
             
             if map_output and map_output.get("last_object_clicked_tooltip"):
@@ -160,7 +165,6 @@ if churches_df is not None:
                 display_df = nearby_schools[['School', 'Air_Dist', 'Driving_Miles']].copy()
                 display_df['Driving_Miles'] = display_df['Driving_Miles'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "Click Calc")
 
-                # Table Highlight Logic
                 def highlight_row(row):
                     return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row) if st.session_state.active_school == row.School else [''] * len(row)
 
@@ -175,7 +179,6 @@ if churches_df is not None:
                     }
                 )
                 
-                # Selection Details Card (Triggered by map click)
                 if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
                     info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
                     with st.container(border=True):
