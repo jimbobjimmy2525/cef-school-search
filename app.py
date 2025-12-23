@@ -78,10 +78,7 @@ if churches_df is not None:
     radius_miles = st.sidebar.slider("4. Radius (Miles):", 0.5, 20.0, 3.0, 0.5)
 
     # --- RESET LOGIC ---
-    # Create a unique ID for the current search (Church + Radius)
     current_search_id = f"{selected_church_name}_{radius_miles}"
-    
-    # If the ID changed, clear the old driving data and active school
     if st.session_state.last_search_id != current_search_id:
         st.session_state.driving_data = {}
         st.session_state.active_school = None
@@ -106,6 +103,8 @@ if churches_df is not None:
             
             schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
             nearby_schools = schools_df[schools_df['Air_Dist'] <= radius_miles].copy()
+            
+            # Mapping driving miles (will be NaN if not calculated)
             nearby_schools['Driving_Miles'] = nearby_schools['School'].map(st.session_state.driving_data)
 
             for _, row in nearby_schools.iterrows():
@@ -117,16 +116,10 @@ if churches_df is not None:
                     z_index_offset=1000 if is_active else 0
                 ).add_to(m)
             
-            map_output = st_folium(m, use_container_width=True, height=550, key="active_map")
-            
-            if map_output and map_output.get("last_object_clicked_tooltip"):
-                clicked = map_output["last_object_clicked_tooltip"]
-                if clicked in nearby_schools['School'].values and clicked != st.session_state.active_school:
-                    st.session_state.active_school = clicked
-                    st.rerun()
+            st_folium(m, use_container_width=True, height=550, key="active_map")
         else:
             st.info("👋 Welcome! Use the sidebar to select a city and church.")
-            m = folium.Map(location=[35.8601, -86.6602], zoom_start=7, scrollWheelZoom=False)
+            m = folium.Map(location=[35.8601, -86.6602], zoom_start=7)
             tn_bounds = [[34.98, -90.31], [36.68, -81.64]]
             folium.Rectangle(bounds=tn_bounds, color="#0056b3", weight=2, fill=True, fill_opacity=0.1).add_to(m)
             m.fit_bounds(tn_bounds)
@@ -138,10 +131,9 @@ if churches_df is not None:
             
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
-                # Button only appears if we have schools and NO driving data yet
                 if not nearby_schools.empty and not st.session_state.driving_data:
                     if st.button("🚗 Calculate Driving Miles", use_container_width=True):
-                        with st.spinner('Calculating road routes...'):
+                        with st.spinner('Calculating...'):
                             results = {row['School']: get_driving_distance(c_lat, c_lon, row['Latitude'], row['Longitude']) for _, row in nearby_schools.iterrows()}
                             st.session_state.driving_data = results
                         st.rerun()
@@ -154,31 +146,41 @@ if churches_df is not None:
                     csv = nearby_schools.to_csv(index=False).encode('utf-8')
                     st.download_button("📥 Export School List", data=csv, file_name=f"{datetime.now().strftime('%y_%m%d')}-{clean_name}.csv", use_container_width=True)
 
-            school_options = ["None Selected"] + sorted(nearby_schools['School'].tolist())
-            try:
-                current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
-            except:
-                current_idx = 0
-                
-            selected_from_list = st.selectbox("Highlight a school:", school_options, index=current_idx)
-            if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
-                st.session_state.active_school = selected_from_list
-                st.rerun()
-
-            def highlight_row(row):
-                if st.session_state.active_school == row.School:
-                    return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row)
-                return [''] * len(row)
-
+            # Data Display Logic
             if not nearby_schools.empty:
-                dist_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
-                nearby_schools = nearby_schools.sort_values(dist_col)
+                # Sort by Driving Miles if available, otherwise Air Miles
+                sort_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
+                nearby_schools = nearby_schools.sort_values(sort_col)
+
+                # Format columns for display
+                display_df = nearby_schools[['School', 'Air_Dist', 'Driving_Miles']].copy()
                 
+                # Fill NaN in Driving Miles with a prompt string
+                display_df['Driving_Miles'] = display_df['Driving_Miles'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "Click Calc")
+
+                def highlight_row(row):
+                    return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row) if st.session_state.active_school == row.School else [''] * len(row)
+
                 st.dataframe(
-                    nearby_schools[['School', dist_col, 'City']].style.apply(highlight_row, axis=1),
-                    hide_index=True, use_container_width=True, height=300
+                    display_df.style.apply(highlight_row, axis=1),
+                    hide_index=True, 
+                    use_container_width=True, 
+                    height=300,
+                    column_config={
+                        "Air_Dist": st.column_config.NumberColumn("Air Mi", format="%.2f"),
+                        "Driving_Miles": st.column_config.TextColumn("Road Mi")
+                    }
                 )
                 
+                # Selection logic
+                school_options = ["None Selected"] + sorted(nearby_schools['School'].tolist())
+                current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
+                selected_from_list = st.selectbox("Highlight a school:", school_options, index=current_idx)
+                
+                if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
+                    st.session_state.active_school = selected_from_list
+                    st.rerun()
+
                 if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
                     info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
                     with st.container(border=True):
