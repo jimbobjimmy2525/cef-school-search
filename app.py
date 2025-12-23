@@ -100,7 +100,6 @@ if churches_df is not None:
 
     with col_left:
         st.subheader("Map View")
-        # NEW: Added Search Context Text in Complimentary Blue
         st.markdown(f"<h4 style='color: #0056b3; margin-top: -15px;'>📍 {selected_church_name} ({radius_miles} Mile Radius)</h4>", unsafe_allow_html=True)
         
         m = folium.Map(location=[c_lat, c_lon], zoom_start=13, scrollWheelZoom=False)
@@ -155,8 +154,12 @@ if churches_df is not None:
             st.session_state.active_school = selected_from_list
             st.rerun()
 
+        # UPDATED: Improved High-Contrast Styling
         def highlight_row(row):
-            return ['background-color: #d1f2eb' if st.session_state.active_school == row.School else '' for _ in row]
+            if st.session_state.active_school == row.School:
+                # Deep Navy background, Bold White text
+                return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row)
+            return [''] * len(row)
 
         if not nearby_schools.empty:
             dist_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
@@ -164,6 +167,7 @@ if churches_df is not None:
             
             display_cols = ['School', dist_col, 'City']
             styled_df = nearby_schools[display_cols].style.apply(highlight_row, axis=1)
+            
             st.dataframe(
                 styled_df, 
                 hide_index=True, 
