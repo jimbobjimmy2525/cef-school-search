@@ -75,20 +75,16 @@ if churches_df is not None:
     church_data = city_filt_churches[city_filt_churches['CONAME'] == selected_church_name].iloc[0]
     c_lat, c_lon = float(church_data['LATITUDE']), float(church_data['LONGITUDE'])
 
-    # Create a unique key for the current search (Church + Radius)
     current_search_key = f"{selected_church_name}_{radius_miles}"
     
-    # If the search parameters changed, clear the saved driving data
     if st.session_state.last_search_key != current_search_key:
         st.session_state.driving_data = {}
         st.session_state.last_search_key = current_search_key
         st.session_state.active_school = None
 
-    # Step A: Straight-line filter (Always Fast)
     schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
     nearby_schools = schools_df[schools_df['Air_Dist'] <= radius_miles].copy()
 
-    # Apply saved driving data if it exists
     if st.session_state.driving_data:
         nearby_schools['Driving_Miles'] = nearby_schools['School'].map(st.session_state.driving_data)
         nearby_schools = nearby_schools.sort_values('Driving_Miles')
@@ -104,6 +100,9 @@ if churches_df is not None:
 
     with col_left:
         st.subheader("Map View")
+        # NEW: Added Search Context Text in Complimentary Blue
+        st.markdown(f"<h4 style='color: #0056b3; margin-top: -15px;'>📍 {selected_church_name} ({radius_miles} Mile Radius)</h4>", unsafe_allow_html=True)
+        
         m = folium.Map(location=[c_lat, c_lon], zoom_start=13, scrollWheelZoom=False)
         folium.Circle([c_lat, c_lon], radius=radius_miles * 1609.34, color='red', fill=True, fill_opacity=0.05).add_to(m)
         
@@ -134,7 +133,6 @@ if churches_df is not None:
     with col_right:
         st.subheader(f"Results ({len(nearby_schools)})")
         
-        # --- DRIVING DISTANCE BUTTON ---
         if not nearby_schools.empty and not st.session_state.driving_data:
             if st.button("🚗 Calculate Driving Miles (OSRM)", use_container_width=True):
                 with st.spinner('Requesting road routes...'):
@@ -161,7 +159,6 @@ if churches_df is not None:
             return ['background-color: #d1f2eb' if st.session_state.active_school == row.School else '' for _ in row]
 
         if not nearby_schools.empty:
-            # Show Driving Miles if calculated, otherwise show Air Miles
             dist_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
             dist_label = "Driving Mi" if st.session_state.driving_data else "Air Mi"
             
