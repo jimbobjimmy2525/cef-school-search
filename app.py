@@ -85,7 +85,6 @@ if churches_df is not None:
         st.subheader("Map View")
         
         if has_selection:
-            # --- CHURCH VIEW ---
             church_data = churches_df[churches_df['CONAME'] == selected_church_name].iloc[0]
             c_lat, c_lon = float(church_data['LATITUDE']), float(church_data['LONGITUDE'])
             
@@ -98,6 +97,9 @@ if churches_df is not None:
             schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
             nearby_schools = schools_df[schools_df['Air_Dist'] <= radius_miles].copy()
             
+            # CRITICAL FIX: Ensure Driving_Miles column exists even if empty to prevent KeyError
+            nearby_schools['Driving_Miles'] = nearby_schools['School'].map(st.session_state.driving_data)
+
             for _, row in nearby_schools.iterrows():
                 is_active = (row['School'] == st.session_state.active_school)
                 folium.Marker(
@@ -115,7 +117,6 @@ if churches_df is not None:
                     st.session_state.active_school = clicked
                     st.rerun()
         else:
-            # --- STATEWIDE VIEW ---
             st.info("👋 Welcome! Use the sidebar to select a city and church.")
             m = folium.Map(location=[35.8601, -86.6602], zoom_start=7, scrollWheelZoom=False)
             tn_bounds = [[34.98, -90.31], [36.68, -81.64]]
@@ -144,7 +145,7 @@ if churches_df is not None:
                     csv = nearby_schools.to_csv(index=False).encode('utf-8')
                     st.download_button("📥 Export School List", data=csv, file_name=f"{datetime.now().strftime('%y_%m%d')}-{clean_name}.csv", use_container_width=True)
 
-            school_options = ["None Selected"] + nearby_schools['School'].tolist()
+            school_options = ["None Selected"] + sorted(nearby_schools['School'].tolist())
             try:
                 current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
             except:
@@ -161,7 +162,12 @@ if churches_df is not None:
                 return [''] * len(row)
 
             if not nearby_schools.empty:
+                # Column check logic
                 dist_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
+                
+                # Sort by distance
+                nearby_schools = nearby_schools.sort_values(dist_col)
+                
                 st.dataframe(
                     nearby_schools[['School', dist_col, 'City']].style.apply(highlight_row, axis=1),
                     hide_index=True, use_container_width=True, height=300
@@ -172,8 +178,11 @@ if churches_df is not None:
                     with st.container(border=True):
                         st.write(f"**{info['School']}**")
                         st.write(f"📍 {info['Address']}, {info['City']}")
+                        
+                        # Corrected Maps URL for directions
                         gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={c_lat},{c_lon}&destination={info['Latitude']},{info['Longitude']}&travelmode=driving"
                         st.link_button("🌐 Open Directions in Google Maps", gmaps_url, use_container_width=True)
+                        
                         if st.button("Clear Selection", use_container_width=True):
                             st.session_state.active_school = None
                             st.rerun()
