@@ -24,7 +24,10 @@ def get_driving_distance(c_lat, c_lon, s_lat, s_lon):
     except:
         return None
 
-st.set_page_config(page_title="CEF School Search - Tennessee", layout="wide")
+st.set_page_config(page_title="CEF School Search - BETA", layout="wide")
+
+# --- BETA BANNER ---
+st.warning("🚀 **BETA VERSION** | This tool is in active development. Please report any data or distance discrepancies.")
 
 # --- SESSION STATE ---
 if 'active_school' not in st.session_state:
@@ -96,7 +99,6 @@ if churches_df is not None:
             nearby_schools = schools_df[schools_df['Air_Dist'] <= radius_miles].copy()
             
             for _, row in nearby_schools.iterrows():
-                # RESTORED: Marker color sync
                 is_active = (row['School'] == st.session_state.active_school)
                 folium.Marker(
                     [row['Latitude'], row['Longitude']],
@@ -153,7 +155,6 @@ if churches_df is not None:
                 st.session_state.active_school = selected_from_list
                 st.rerun()
 
-            # RESTORED: High-contrast row highlighting logic
             def highlight_row(row):
                 if st.session_state.active_school == row.School:
                     return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row)
@@ -166,7 +167,6 @@ if churches_df is not None:
                     hide_index=True, use_container_width=True, height=300
                 )
                 
-                # Detail Card with Google Maps Link
                 if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
                     info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
                     with st.container(border=True):
