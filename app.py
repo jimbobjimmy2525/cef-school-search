@@ -123,4 +123,79 @@ if churches_df is not None:
 
         map_output = st_folium(m, use_container_width=True, height=550, key="map")
         
-        if map_output and map_output.get("last_object_
+        # REPAIRED LINE 126
+        if map_output and map_output.get("last_object_clicked_tooltip"):
+            clicked = map_output["last_object_clicked_tooltip"]
+            if clicked in nearby_schools['School'].values and clicked != st.session_state.active_school:
+                st.session_state.active_school = clicked
+                st.rerun()
+
+    with col_right:
+        st.markdown(f"#### 🏫 Schools within {radius_miles} miles of {selected_church_name} ({len(nearby_schools)})")
+        
+        if not nearby_schools.empty and not st.session_state.driving_data:
+            if st.button("🚗 Calculate Driving Miles (OSRM)", use_container_width=True):
+                with st.spinner('Requesting road routes...'):
+                    results = {}
+                    for _, row in nearby_schools.iterrows():
+                        dist = get_driving_distance(c_lat, c_lon, row['Latitude'], row['Longitude'])
+                        results[row['School']] = dist
+                    st.session_state.driving_data = results
+                st.rerun()
+
+        school_options = ["None Selected"] + nearby_schools['School'].tolist()
+        try:
+            current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
+        except ValueError:
+            current_idx = 0
+
+        selected_from_list = st.selectbox("Search/Select to highlight:", school_options, index=current_idx)
+        
+        if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
+            st.session_state.active_school = selected_from_list
+            st.rerun()
+
+        def highlight_row(row):
+            if st.session_state.active_school == row.School:
+                return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row)
+            return [''] * len(row)
+
+        if not nearby_schools.empty:
+            dist_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
+            dist_label = "Driving Mi" if st.session_state.driving_data else "Air Mi"
+            
+            display_cols = ['School', dist_col, 'City']
+            styled_df = nearby_schools[display_cols].style.apply(highlight_row, axis=1)
+            
+            st.dataframe(
+                styled_df, 
+                hide_index=True, 
+                use_container_width=True, 
+                height=300,
+                column_config={dist_col: st.column_config.NumberColumn(dist_label, format="%.2f")}
+            )
+        else:
+            st.write("No schools found in this radius.")
+        
+        if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
+            info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
+            with st.container(border=True):
+                st.markdown(f"#### ✅ {info['School']}")
+                st.write(f"📍 **Address:** {info['Address']}, {info['City']} TN")
+                st.write(f"📞 **Phone:** {info['Phone1']}")
+                
+                final_dist = info['Driving_Miles'] if st.session_state.driving_data else info['Air_Dist']
+                label = "Road Distance" if st.session_state.driving_data else "Straight-line Distance"
+                st.metric(label, f"{final_dist:.2f} miles")
+                
+                # Universal Google Maps Directions URL
+                gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={c_lat},{c_lon}&destination={info['Latitude']},{info['Longitude']}&travelmode=driving"
+                st.link_button("🌐 Open Directions in Google Maps", gmaps_url, use_container_width=True)
+                
+                if st.button("Clear Selection", use_container_width=True):
+                    st.session_state.active_school = None
+                    st.rerun()
+
+    # Export
+    csv = nearby_schools.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button(label="📥 Export Results (CSV)", data=csv, file_name=dynamic_filename, mime="text/csv")
