@@ -26,6 +26,9 @@ def get_driving_distance(c_lat, c_lon, s_lat, s_lon):
 
 st.set_page_config(page_title="CEF School Search - BETA", layout="wide")
 
+# --- BETA BANNER ---
+st.warning("🚀 **BETA VERSION** | This tool is in active development. Please report any data or distance discrepancies.")
+
 # --- SESSION STATE ---
 if 'active_school' not in st.session_state:
     st.session_state.active_school = None
@@ -94,23 +97,8 @@ if churches_df is not None:
             
             st.markdown(f"<h4 style='color: #0056b3; margin-top: -15px;'>📍 {selected_church_name}</h4>", unsafe_allow_html=True)
             
-            # 1. Initialize empty map
-            m = folium.Map()
-            
-            # 2. Add search radius circle
-            radius_meters = radius_miles * 1609.34
-            circle = folium.Circle(
-                [c_lat, c_lon], 
-                radius=radius_meters, 
-                color='red', 
-                fill=True, 
-                fill_opacity=0.05
-            ).add_to(m)
-            
-            # 3. FORCE ZOOM: Fit to the circle's box
-            m.fit_bounds(circle.get_bounds())
-            
-            # 4. Add markers
+            m = folium.Map(location=[c_lat, c_lon], zoom_start=13)
+            folium.Circle([c_lat, c_lon], radius=radius_miles * 1609.34, color='red', fill=True, fill_opacity=0.05).add_to(m)
             folium.Marker([c_lat, c_lon], tooltip=selected_church_name, icon=folium.Icon(color='red', icon='cross', prefix='fa')).add_to(m)
             
             schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
@@ -126,42 +114,84 @@ if churches_df is not None:
                     z_index_offset=1000 if is_active else 0
                 ).add_to(m)
             
-            # Using current_search_id as key forces map to refresh zoom on change
-            map_output = st_folium(m, use_container_width=True, height=550, key=f"map_{current_search_id}")
-            
-            if map_output and map_output.get("last_object_clicked_tooltip"):
-                clicked = map_output["last_object_clicked_tooltip"]
-                if clicked in nearby_schools['School'].values and clicked != st.session_state.active_school:
-                    st.session_state.active_school = clicked
-                    st.rerun()
+            st_folium(m, use_container_width=True, height=550, key="active_map")
         else:
             st.info("👋 Welcome! Use the sidebar to select a city and church.")
             m = folium.Map(location=[35.8601, -86.6602], zoom_start=7)
+            tn_bounds = [[34.98, -90.31], [36.68, -81.64]]
+            folium.Rectangle(bounds=tn_bounds, color="#0056b3", weight=2, fill=True, fill_opacity=0.1).add_to(m)
+            m.fit_bounds(tn_bounds)
             st_folium(m, use_container_width=True, height=550, key="start_map")
 
     with col_right:
         if has_selection:
             st.markdown(f"#### 🏫 Schools near {selected_church_name}")
-            # [Table and detail card logic remains identical...]
-            # (Truncated for brevity, but keep all logic from your previous working version)
             st.write(f"Showing {len(nearby_schools)} schools within {radius_miles} miles.")
             
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if not nearby_schools.empty and not st.session_state.driving_data:
+                    if st.button("🚗 Calculate Driving Miles", use_container_width=True):
+                        with st.spinner('Calculating...'):
+                            results = {row['School']: get_driving_distance(c_lat, c_lon, row['Latitude'], row['Longitude']) for _, row in nearby_schools.iterrows()}
+                            st.session_state.driving_data = results
+                        st.rerun()
+                elif st.session_state.driving_data:
+                    st.button("✅ Distances Calculated", disabled=True, use_container_width=True)
+
+            with btn_col2:
+                if not nearby_schools.empty:
+                    clean_name = "".join([c if c.isalnum() else "_" for c in selected_church_name])
+                    csv = nearby_schools.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Export School List", data=csv, file_name=f"{datetime.now().strftime('%y_%m%d')}-{clean_name}.csv", use_container_width=True)
+
             if not nearby_schools.empty:
                 sort_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
                 nearby_schools = nearby_schools.sort_values(sort_col)
+
                 display_df = nearby_schools[['School', 'Air_Dist', 'Driving_Miles']].copy()
+                
+                # Fixed Syntax for Road Mi column display
                 display_df['Driving_Miles'] = display_df['Driving_Miles'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "Click Calc")
 
                 def highlight_row(row):
                     return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row) if st.session_state.active_school == row.School else [''] * len(row)
 
-                st.dataframe(display_df.style.apply(highlight_row, axis=1), hide_index=True, use_container_width=True, height=300)
+                st.dataframe(
+                    display_df.style.apply(highlight_row, axis=1),
+                    hide_index=True, 
+                    use_container_width=True, 
+                    height=300,
+                    column_config={
+                        "Air_Dist": st.column_config.NumberColumn("Air Mi", format="%.2f"),
+                        "Driving_Miles": st.column_config.TextColumn("Road Mi")
+                    }
+                )
+                
+                school_options = ["None Selected"] + sorted(nearby_schools['School'].tolist())
+                current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
+                selected_from_list = st.selectbox("Highlight a school:", school_options, index=current_idx)
+                
+                if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
+                    st.session_state.active_school = selected_from_list
+                    st.rerun()
 
-                if st.session_state.active_school:
+                if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
                     info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
                     with st.container(border=True):
                         st.write(f"**{info['School']}**")
                         st.write(f"📍 {info['Address']}, {info['City']}")
+                        
+                        # Show both distances for comparison
+                        dist_msg = f"📏 Air: {info['Air_Dist']:.2f} mi"
+                        if pd.notnull(info['Driving_Miles']):
+                            dist_msg += f" | 🚗 Road: {info['Driving_Miles']:.2f} mi"
+                        st.write(dist_msg)
+                        
+                        gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={c_lat},{c_lon}&destination={info['Latitude']},{info['Longitude']}&travelmode=driving"
+                        st.link_button("🌐 Open Directions in Google Maps", gmaps_url, use_container_width=True)
                         if st.button("Clear Selection", use_container_width=True):
                             st.session_state.active_school = None
                             st.rerun()
+        else:
+            st.markdown("### 🏁 Getting Started\n1. Select a **City**\n2. Select a **Church**\n3. View Results")
