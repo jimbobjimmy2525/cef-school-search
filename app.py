@@ -103,8 +103,6 @@ if churches_df is not None:
             
             schools_df['Air_Dist'] = schools_df.apply(lambda r: haversine(c_lon, c_lat, r['Longitude'], r['Latitude']), axis=1)
             nearby_schools = schools_df[schools_df['Air_Dist'] <= radius_miles].copy()
-            
-            # Mapping driving miles (will be NaN if not calculated)
             nearby_schools['Driving_Miles'] = nearby_schools['School'].map(st.session_state.driving_data)
 
             for _, row in nearby_schools.iterrows():
@@ -127,7 +125,9 @@ if churches_df is not None:
 
     with col_right:
         if has_selection:
-            st.markdown(f"#### 🏫 Schools within {radius_miles} miles ({len(nearby_schools)})")
+            # RESTORED: Church Name in the header
+            st.markdown(f"#### 🏫 Schools near {selected_church_name}")
+            st.write(f"Showing {len(nearby_schools)} schools within {radius_miles} miles.")
             
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
@@ -146,50 +146,9 @@ if churches_df is not None:
                     csv = nearby_schools.to_csv(index=False).encode('utf-8')
                     st.download_button("📥 Export School List", data=csv, file_name=f"{datetime.now().strftime('%y_%m%d')}-{clean_name}.csv", use_container_width=True)
 
-            # Data Display Logic
             if not nearby_schools.empty:
-                # Sort by Driving Miles if available, otherwise Air Miles
                 sort_col = 'Driving_Miles' if st.session_state.driving_data else 'Air_Dist'
                 nearby_schools = nearby_schools.sort_values(sort_col)
 
-                # Format columns for display
                 display_df = nearby_schools[['School', 'Air_Dist', 'Driving_Miles']].copy()
-                
-                # Fill NaN in Driving Miles with a prompt string
-                display_df['Driving_Miles'] = display_df['Driving_Miles'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "Click Calc")
-
-                def highlight_row(row):
-                    return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row) if st.session_state.active_school == row.School else [''] * len(row)
-
-                st.dataframe(
-                    display_df.style.apply(highlight_row, axis=1),
-                    hide_index=True, 
-                    use_container_width=True, 
-                    height=300,
-                    column_config={
-                        "Air_Dist": st.column_config.NumberColumn("Air Mi", format="%.2f"),
-                        "Driving_Miles": st.column_config.TextColumn("Road Mi")
-                    }
-                )
-                
-                # Selection logic
-                school_options = ["None Selected"] + sorted(nearby_schools['School'].tolist())
-                current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
-                selected_from_list = st.selectbox("Highlight a school:", school_options, index=current_idx)
-                
-                if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
-                    st.session_state.active_school = selected_from_list
-                    st.rerun()
-
-                if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
-                    info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
-                    with st.container(border=True):
-                        st.write(f"**{info['School']}**")
-                        st.write(f"📍 {info['Address']}, {info['City']}")
-                        gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={c_lat},{c_lon}&destination={info['Latitude']},{info['Longitude']}&travelmode=driving"
-                        st.link_button("🌐 Open Directions in Google Maps", gmaps_url, use_container_width=True)
-                        if st.button("Clear Selection", use_container_width=True):
-                            st.session_state.active_school = None
-                            st.rerun()
-        else:
-            st.markdown("### 🏁 Getting Started\n1. Select a **City**\n2. Select a **Church**\n3. View Results")
+                display_df['Driving_Miles'] = display_df['Driving_Miles'].apply(lambda x: f"{x:.2f}" if
