@@ -6,6 +6,10 @@ from streamlit_folium import st_folium
 from math import radians, cos, sin, asin, sqrt
 from datetime import datetime
 
+# --- REVISION TRACKING ---
+# v1.1.0: Reverted to stable base with air/road columns and map highlighting.
+APP_VERSION = "v1.1.0"
+
 # --- HELPER FUNCTIONS ---
 def haversine(lon1, lat1, lon2, lat2):
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
@@ -24,10 +28,10 @@ def get_driving_distance(c_lat, c_lon, s_lat, s_lon):
     except:
         return None
 
-st.set_page_config(page_title="CEF School Search - BETA", layout="wide")
+st.set_page_config(page_title=f"CEF School Search - {APP_VERSION}", layout="wide")
 
 # --- BETA BANNER ---
-st.warning("🚀 **BETA VERSION** | This tool is in active development. Please report any data or distance discrepancies.")
+st.warning(f"🚀 **BETA VERSION {APP_VERSION}** | This tool is in active development. Please report any discrepancies.")
 
 # --- SESSION STATE ---
 if 'active_school' not in st.session_state:
@@ -37,7 +41,7 @@ if 'driving_data' not in st.session_state:
 if 'last_search_id' not in st.session_state:
     st.session_state.last_search_id = ""
 
-st.title("CEF School Search - Tennessee")
+st.title(f"CEF School Search - Tennessee ({APP_VERSION})")
 
 @st.cache_data
 def load_data():
@@ -150,8 +154,6 @@ if churches_df is not None:
                 nearby_schools = nearby_schools.sort_values(sort_col)
 
                 display_df = nearby_schools[['School', 'Air_Dist', 'Driving_Miles']].copy()
-                
-                # Fixed Syntax for Road Mi column display
                 display_df['Driving_Miles'] = display_df['Driving_Miles'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "Click Calc")
 
                 def highlight_row(row):
@@ -182,7 +184,6 @@ if churches_df is not None:
                         st.write(f"**{info['School']}**")
                         st.write(f"📍 {info['Address']}, {info['City']}")
                         
-                        # Show both distances for comparison
                         dist_msg = f"📏 Air: {info['Air_Dist']:.2f} mi"
                         if pd.notnull(info['Driving_Miles']):
                             dist_msg += f" | 🚗 Road: {info['Driving_Miles']:.2f} mi"
