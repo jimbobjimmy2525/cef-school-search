@@ -113,7 +113,6 @@ if churches_df is not None:
 
         for _, row in nearby_schools.iterrows():
             is_active = (row['School'] == st.session_state.active_school)
-            # UPDATED: Using 'darkblue' to match the navy table highlight
             icon_color = "darkblue" if is_active else "blue"
             folium.Marker(
                 [row['Latitude'], row['Longitude']],
@@ -155,7 +154,6 @@ if churches_df is not None:
             st.session_state.active_school = selected_from_list
             st.rerun()
 
-        # UPDATED: Matches the navy marker on the map
         def highlight_row(row):
             if st.session_state.active_school == row.School:
                 return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row)
@@ -168,5 +166,36 @@ if churches_df is not None:
             display_cols = ['School', dist_col, 'City']
             styled_df = nearby_schools[display_cols].style.apply(highlight_row, axis=1)
             
+            # Syntax fixed here
             st.dataframe(
-                styled_df,
+                styled_df, 
+                hide_index=True, 
+                use_container_width=True, 
+                height=300,
+                column_config={dist_col: st.column_config.NumberColumn(dist_label, format="%.2f")}
+            )
+        else:
+            st.write("No schools found.")
+        
+        if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
+            info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
+            with st.container(border=True):
+                st.markdown(f"#### ✅ {info['School']}")
+                st.write(f"📍 **Address:** {info['Address']}, {info['City']} TN")
+                st.write(f"📞 **Phone:** {info['Phone1']}")
+                
+                final_dist = info['Driving_Miles'] if st.session_state.driving_data else info['Air_Dist']
+                label = "Road Distance" if st.session_state.driving_data else "Straight-line Distance"
+                st.metric(label, f"{final_dist:.2f} miles")
+                
+                # Directions Link
+                gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={c_lat},{c_lon}&destination={info['Latitude']},{info['Longitude']}&travelmode=driving"
+                st.link_button("🌐 Open in Google Maps", gmaps_url, use_container_width=True)
+                
+                if st.button("Clear Selection", use_container_width=True):
+                    st.session_state.active_school = None
+                    st.rerun()
+
+    # Export
+    csv = nearby_schools.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button(label="📥 Export Results (CSV)", data=csv, file_name=dynamic_filename, mime="text/csv")
