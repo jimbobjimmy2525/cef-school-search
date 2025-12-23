@@ -7,19 +7,15 @@ from math import radians, cos, sin, asin, sqrt, degrees
 from datetime import datetime
 
 # --- REVISION TRACKING ---
-# v1.2.0: Dynamic zoom attempt (failed to frame circle).
-# v1.3.0: Manual Bounding Box calculation for guaranteed circle framing.
-APP_VERSION = "v1.3.0"
+# v1.1.0 - v1.3.0: Distance logic and Manual Bounding Box Fix.
+# v1.4.0: Removed redundant city and church search text inputs for cleaner UI.
+APP_VERSION = "v1.4.0"
 
 # --- HELPER FUNCTIONS ---
 def get_circle_bounds(lat, lon, radius_miles):
-    # Earth's radius in miles
     R = 3956 
-    # Offsets in radians
     d_lat = radius_miles / R
     d_lon = radius_miles / (R * cos(radians(lat)))
-    
-    # Calculate corners
     sw = [lat - degrees(d_lat), lon - degrees(d_lon)]
     ne = [lat + degrees(d_lat), lon + degrees(d_lon)]
     return [sw, ne]
@@ -44,7 +40,7 @@ def get_driving_distance(c_lat, c_lon, s_lat, s_lon):
 st.set_page_config(page_title=f"CEF School Search - {APP_VERSION}", layout="wide")
 
 # --- BETA BANNER ---
-st.warning(f"🚀 **BETA VERSION {APP_VERSION}** | Manual Bounding Box Fix implemented for Radius Framing.")
+st.warning(f"🚀 **BETA VERSION {APP_VERSION}** | UI Streamlined: Redundant search boxes removed.")
 
 # --- SESSION STATE ---
 if 'active_school' not in st.session_state:
@@ -72,27 +68,24 @@ def load_data():
 churches_df, schools_df = load_data()
 
 if churches_df is not None:
-    # --- SIDEBAR ---
+    # --- SIDEBAR (Updated for v1.4.0) ---
     st.sidebar.header("Search Parameters")
     
-    city_search = st.sidebar.text_input("1a. Search City:", "")
+    # Combined city selection (Removed 1a search box)
     all_cities = sorted(churches_df['CITY'].unique().astype(str).tolist())
-    filt_cities = [c for c in all_cities if city_search.lower() in c.lower()]
-    
-    city_options = ["--- Select a City ---"] + filt_cities
-    selected_city = st.sidebar.selectbox("1b. Select City:", city_options)
+    city_options = ["--- Select a City ---"] + all_cities
+    selected_city = st.sidebar.selectbox("1. Select City:", city_options)
 
     if selected_city != "--- Select a City ---":
         city_filt_churches = churches_df[churches_df['CITY'] == selected_city]
-        church_search = st.sidebar.text_input("2. Search Church Name:", "")
         avail_churches = sorted(city_filt_churches['CONAME'].unique().tolist())
-        filt_church_list = [c for c in avail_churches if church_search.lower() in c.lower()]
-        church_options = ["--- Select a Church ---"] + filt_church_list
-        selected_church_name = st.sidebar.selectbox("3. Select Church:", church_options)
+        church_options = ["--- Select a Church ---"] + avail_churches
+        # Combined church selection (Removed search box)
+        selected_church_name = st.sidebar.selectbox("2. Select Church:", church_options)
     else:
         selected_church_name = "--- Select a Church ---"
 
-    radius_miles = st.sidebar.slider("4. Radius (Miles):", 0.5, 20.0, 3.0, 0.5)
+    radius_miles = st.sidebar.slider("3. Radius (Miles):", 0.5, 20.0, 3.0, 0.5)
 
     # --- RESET LOGIC ---
     current_search_id = f"{selected_church_name}_{radius_miles}"
@@ -114,20 +107,11 @@ if churches_df is not None:
             
             st.markdown(f"<h4 style='color: #0056b3; margin-top: -15px;'>📍 {selected_church_name}</h4>", unsafe_allow_html=True)
             
-            # v1.3.0 FIX: Start with a clean map and no location/zoom defaults
             m = folium.Map()
             
-            # Add radius circle
             radius_meters = radius_miles * 1609.34
-            folium.Circle(
-                [c_lat, c_lon], 
-                radius=radius_meters, 
-                color='red', 
-                fill=True, 
-                fill_opacity=0.05
-            ).add_to(m)
+            folium.Circle([c_lat, c_lon], radius=radius_meters, color='red', fill=True, fill_opacity=0.05).add_to(m)
             
-            # v1.3.0 FIX: Calculate manual bounding box and fit
             bounds = get_circle_bounds(c_lat, c_lon, radius_miles)
             m.fit_bounds(bounds)
             
@@ -157,7 +141,6 @@ if churches_df is not None:
             st.markdown(f"#### 🏫 Schools near {selected_church_name}")
             st.write(f"Showing {len(nearby_schools)} schools within {radius_miles} miles.")
             
-            # ... [Rest of the right column code from v1.1.0 stays exactly the same] ...
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
                 if not nearby_schools.empty and not st.session_state.driving_data:
