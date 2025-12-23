@@ -3,15 +3,27 @@ import pandas as pd
 import folium
 import requests
 from streamlit_folium import st_folium
-from math import radians, cos, sin, asin, sqrt
+from math import radians, cos, sin, asin, sqrt, degrees
 from datetime import datetime
 
 # --- REVISION TRACKING ---
-# v1.1.0: Stable base with air/road columns.
-# v1.2.0: Implemented dynamic map zoom using fit_bounds and unique map keys.
-APP_VERSION = "v1.2.0"
+# v1.2.0: Dynamic zoom attempt (failed to frame circle).
+# v1.3.0: Manual Bounding Box calculation for guaranteed circle framing.
+APP_VERSION = "v1.3.0"
 
 # --- HELPER FUNCTIONS ---
+def get_circle_bounds(lat, lon, radius_miles):
+    # Earth's radius in miles
+    R = 3956 
+    # Offsets in radians
+    d_lat = radius_miles / R
+    d_lon = radius_miles / (R * cos(radians(lat)))
+    
+    # Calculate corners
+    sw = [lat - degrees(d_lat), lon - degrees(d_lon)]
+    ne = [lat + degrees(d_lat), lon + degrees(d_lon)]
+    return [sw, ne]
+
 def haversine(lon1, lat1, lon2, lat2):
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
     dlon, dlat = lon2 - lon1, lat2 - lat1
@@ -32,7 +44,7 @@ def get_driving_distance(c_lat, c_lon, s_lat, s_lon):
 st.set_page_config(page_title=f"CEF School Search - {APP_VERSION}", layout="wide")
 
 # --- BETA BANNER ---
-st.warning(f"🚀 **BETA VERSION {APP_VERSION}** | Map Zoom Fix implemented. Please verify radius framing.")
+st.warning(f"🚀 **BETA VERSION {APP_VERSION}** | Manual Bounding Box Fix implemented for Radius Framing.")
 
 # --- SESSION STATE ---
 if 'active_school' not in st.session_state:
@@ -102,12 +114,12 @@ if churches_df is not None:
             
             st.markdown(f"<h4 style='color: #0056b3; margin-top: -15px;'>📍 {selected_church_name}</h4>", unsafe_allow_html=True)
             
-            # v1.2.0 FIX: Initialize map without fixed zoom to prioritize fit_bounds
-            m = folium.Map(location=[c_lat, c_lon])
+            # v1.3.0 FIX: Start with a clean map and no location/zoom defaults
+            m = folium.Map()
             
             # Add radius circle
             radius_meters = radius_miles * 1609.34
-            search_circle = folium.Circle(
+            folium.Circle(
                 [c_lat, c_lon], 
                 radius=radius_meters, 
                 color='red', 
@@ -115,8 +127,9 @@ if churches_df is not None:
                 fill_opacity=0.05
             ).add_to(m)
             
-            # v1.2.0 FIX: Dynamically set zoom to circle boundaries
-            m.fit_bounds(search_circle.get_bounds())
+            # v1.3.0 FIX: Calculate manual bounding box and fit
+            bounds = get_circle_bounds(c_lat, c_lon, radius_miles)
+            m.fit_bounds(bounds)
             
             folium.Marker([c_lat, c_lon], tooltip=selected_church_name, icon=folium.Icon(color='red', icon='cross', prefix='fa')).add_to(m)
             
@@ -133,7 +146,6 @@ if churches_df is not None:
                     z_index_offset=1000 if is_active else 0
                 ).add_to(m)
             
-            # v1.2.0 FIX: Unique key per search prevents map from getting 'stuck'
             st_folium(m, use_container_width=True, height=550, key=f"map_{current_search_id}")
         else:
             st.info("👋 Welcome! Use the sidebar to select a city and church.")
@@ -143,9 +155,9 @@ if churches_df is not None:
     with col_right:
         if has_selection:
             st.markdown(f"#### 🏫 Schools near {selected_church_name}")
-            # [Table and detail card logic from v1.1.0 continues here...]
             st.write(f"Showing {len(nearby_schools)} schools within {radius_miles} miles.")
             
+            # ... [Rest of the right column code from v1.1.0 stays exactly the same] ...
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
                 if not nearby_schools.empty and not st.session_state.driving_data:
@@ -172,18 +184,12 @@ if churches_df is not None:
                 def highlight_row(row):
                     return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row) if st.session_state.active_school == row.School else [''] * len(row)
 
-                st.dataframe(
-                    display_df.style.apply(highlight_row, axis=1),
-                    hide_index=True, 
-                    use_container_width=True, 
-                    height=300,
+                st.dataframe(display_df.style.apply(highlight_row, axis=1), hide_index=True, use_container_width=True, height=300,
                     column_config={
                         "Air_Dist": st.column_config.NumberColumn("Air Mi", format="%.2f"),
                         "Driving_Miles": st.column_config.TextColumn("Road Mi")
-                    }
-                )
+                    })
                 
-                # Selection dropdown restored for v1.1.0 compatibility
                 school_options = ["None Selected"] + sorted(nearby_schools['School'].tolist())
                 current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
                 selected_from_list = st.selectbox("Highlight a school:", school_options, index=current_idx)
