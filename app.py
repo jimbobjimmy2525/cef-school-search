@@ -106,6 +106,7 @@ if churches_df is not None:
             nearby_schools['Driving_Miles'] = nearby_schools['School'].map(st.session_state.driving_data)
 
             for _, row in nearby_schools.iterrows():
+                # Reimplemented: Icon Color Highlighting Logic
                 is_active = (row['School'] == st.session_state.active_school)
                 folium.Marker(
                     [row['Latitude'], row['Longitude']],
@@ -114,7 +115,14 @@ if churches_df is not None:
                     z_index_offset=1000 if is_active else 0
                 ).add_to(m)
             
-            st_folium(m, use_container_width=True, height=550, key="active_map")
+            # Reimplemented: Capture Map Clicks to set Active School
+            map_output = st_folium(m, use_container_width=True, height=550, key="active_map")
+            
+            if map_output and map_output.get("last_object_clicked_tooltip"):
+                clicked = map_output["last_object_clicked_tooltip"]
+                if clicked in nearby_schools['School'].values and clicked != st.session_state.active_school:
+                    st.session_state.active_school = clicked
+                    st.rerun()
         else:
             st.info("👋 Welcome! Use the sidebar to select a city and church.")
             m = folium.Map(location=[35.8601, -86.6602], zoom_start=7)
@@ -150,10 +158,9 @@ if churches_df is not None:
                 nearby_schools = nearby_schools.sort_values(sort_col)
 
                 display_df = nearby_schools[['School', 'Air_Dist', 'Driving_Miles']].copy()
-                
-                # Fixed Syntax for Road Mi column display
                 display_df['Driving_Miles'] = display_df['Driving_Miles'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "Click Calc")
 
+                # Table Highlight Logic
                 def highlight_row(row):
                     return ['background-color: #002b5c; color: white; font-weight: bold'] * len(row) if st.session_state.active_school == row.School else [''] * len(row)
 
@@ -168,21 +175,13 @@ if churches_df is not None:
                     }
                 )
                 
-                school_options = ["None Selected"] + sorted(nearby_schools['School'].tolist())
-                current_idx = school_options.index(st.session_state.active_school) if st.session_state.active_school in school_options else 0
-                selected_from_list = st.selectbox("Highlight a school:", school_options, index=current_idx)
-                
-                if selected_from_list != "None Selected" and selected_from_list != st.session_state.active_school:
-                    st.session_state.active_school = selected_from_list
-                    st.rerun()
-
+                # Selection Details Card (Triggered by map click)
                 if st.session_state.active_school and st.session_state.active_school in nearby_schools['School'].values:
                     info = nearby_schools[nearby_schools['School'] == st.session_state.active_school].iloc[0]
                     with st.container(border=True):
                         st.write(f"**{info['School']}**")
                         st.write(f"📍 {info['Address']}, {info['City']}")
                         
-                        # Show both distances for comparison
                         dist_msg = f"📏 Air: {info['Air_Dist']:.2f} mi"
                         if pd.notnull(info['Driving_Miles']):
                             dist_msg += f" | 🚗 Road: {info['Driving_Miles']:.2f} mi"
