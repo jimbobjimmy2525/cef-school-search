@@ -97,13 +97,20 @@ if churches_df is not None:
             
             st.markdown(f"<h4 style='color: #0056b3; margin-top: -15px;'>📍 {selected_church_name}</h4>", unsafe_allow_html=True)
             
-            m = folium.Map(location=[c_lat, c_lon], zoom_start=13)
+            # Initialization without fixed zoom to allow fit_bounds to work properly
+            m = folium.Map(location=[c_lat, c_lon])
             
-            # --- RADIUS & ZOOM LOGIC ---
+            # Create Circle
             radius_meters = radius_miles * 1609.34
-            circle = folium.Circle([c_lat, c_lon], radius=radius_meters, color='red', fill=True, fill_opacity=0.05).add_to(m)
+            circle = folium.Circle(
+                [c_lat, c_lon], 
+                radius=radius_meters, 
+                color='red', 
+                fill=True, 
+                fill_opacity=0.05
+            ).add_to(m)
             
-            # RESTORED: Auto-zoom to fit the radius
+            # RE-FIXED: Dynamic Zoom based on Circle bounds
             m.fit_bounds(circle.get_bounds())
             
             folium.Marker([c_lat, c_lon], tooltip=selected_church_name, icon=folium.Icon(color='red', icon='cross', prefix='fa')).add_to(m)
